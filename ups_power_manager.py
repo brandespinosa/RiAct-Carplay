@@ -1,295 +1,341 @@
 #!/usr/bin/env python3
 """
-Enhanced UPS Shutdown Script for React-CarPlay Integration
-Compatible with Maker focus RPi UPSPack V3 and React-CarPlay
+X728 UPS Auto Shutdown Script for Raspberry Pi
+==============================================
 
-This script provides graceful shutdown capabilities for a Raspberry Pi 4B
-running react-carplay when external power is disconnected from the UPS.
+This script monitors the AC power status on GPIO pin 6 and automatically
+shuts down both the Raspberry Pi AND the X728 UPS after 5 seconds when 
+power loss is detected.
 
 Features:
-- Monitors UPS halt signal on GPIO 18 (configurable)
-- Gracefully stops react-carplay application before shutdown
-- Logs all power events with timestamps
-- Handles automatic startup when power is restored
-- Compatible with react-carplay autostart functionality
+- Monitors AC power loss via GPIO interrupt or polling
+- 5-second delay before shutdown (configurable)
+- Proper UPS power-off sequence (based on Geekworm xSoft.sh)
+- Auto power-on when AC power is restored (requires AUTO ON jumper)
+- Comprehensive logging and user-friendly messages
+- Fallback to polling mode if GPIO interrupts fail
 
-Hardware Requirements:
-- Maker focus RPi UPSPack V3
-- Raspberry Pi 4B
-- GPIO connection between UPS STA pin and Pi GPIO 18
+Created for: Geekworm X728 UPS & Power Management Board
+Compatible with: X728 V2.0, V2.1, V2.2, V2.3, V2.5
+Tested on: Raspberry Pi 4B with Raspberry Pi OS
 
-Author: Auto-generated for carplay integration
-Version: 1.0
-Date: 2025
+Author: Custom script based on Geekworm examples
+Version: 2.0 - Now includes proper UPS shutdown!
 """
 
 import RPi.GPIO as GPIO
-import os
-import sys
 import time
 import subprocess
-import signal
 import logging
-from threading import Thread, Event
-from pathlib import Path
+from datetime import datetime
 
-class CarPlayUPSManager:
-    def __init__(self, shutdown_pin=18, log_file="/home/pi/ups_carplay.log"):
-        """
-        Initialize the UPS manager for react-carplay integration
-        
-        Args:
-            shutdown_pin (int): GPIO pin connected to UPS halt signal (default: 18)
-            log_file (str): Path to log file for power events
-        """
-        self.shutdown_pin = shutdown_pin
-        self.log_file = log_file
-        self.shutdown_event = Event()
-        self.carplay_processes = []
-        
-        # Setup logging
-        self.setup_logging()
-        
-        # GPIO setup
-        self.setup_gpio()
-        
-        # Signal handlers for graceful exit
-        signal.signal(signal.SIGTERM, self.signal_handler)
-        signal.signal(signal.SIGINT, self.signal_handler)
-        
-        self.log_event("UPS Manager initialized for react-carplay")
+# Configuration Settings
+POWER_LOSS_DETECT_PIN = 6    # GPIO pin that detects AC power loss
+SHUTDOWN_TRIGGER_PIN = 26    # GPIO pin that triggers X728 shutdown
+SHUTDOWN_DELAY = 5           # Seconds to wait before shutdown after power loss
+DEBOUNCE_TIME = 0.5          # Seconds to wait to avoid false triggers
+
+# Set up logging (create log file in user's home directory)
+import os
+log_file_path = os.path.expanduser('~/x728_power_monitor/x728_shutdown.log')
+
+# Create the log directory if it doesn't exist
+log_dir = os.path.dirname(log_file_path)
+os.makedirs(log_dir, exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file_path),
+        logging.StreamHandler()
+    ]
+)
+
+class X728PowerManager:
+    """Manages power monitoring and safe shutdown for X728 UPS board."""
     
-    def setup_logging(self):
-        """Setup logging configuration"""
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(self.log_file),
-                logging.StreamHandler()
-            ]
-        )
-        self.logger = logging.getLogger(__name__)
+    def __init__(self):
+        """Initialize the power manager with GPIO setup."""
+        self.setup_gpio()
+        self.power_lost = False
+        logging.info("X728 Power Manager initialized successfully")
     
     def setup_gpio(self):
-        """Setup GPIO configuration for UPS monitoring"""
+        """Configure GPIO pins for power monitoring and shutdown control."""
         try:
-            GPIO.setwarnings(False)
+            # Set GPIO mode to BCM (Broadcom pin numbering)
             GPIO.setmode(GPIO.BCM)
-            GPIO.setup(self.shutdown_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-            self.logger.info(f"GPIO {self.shutdown_pin} configured for UPS monitoring")
+            GPIO.setwarnings(False)
+            
+            # Set up power loss detection pin (INPUT)
+            GPIO.setup(POWER_LOSS_DETECT_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            
+            # Set up shutdown trigger pin (OUTPUT)
+            GPIO.setup(SHUTDOWN_TRIGGER_PIN, GPIO.OUT, initial=GPIO.LOW)
+            
+            logging.info("GPIO pins configured successfully")
+            
         except Exception as e:
-            self.logger.error(f"Failed to setup GPIO: {e}")
+            logging.error(f"Failed to setup GPIO: {e}")
             raise
     
-    def log_event(self, message):
-        """Log event with timestamp"""
-        self.logger.info(message)
-        try:
-            with open(self.log_file, "a") as f:
-                timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
-                f.write(f"[{timestamp}] {message}\n")
-        except Exception as e:
-            self.logger.error(f"Failed to write to log file: {e}")
+    def check_power_status(self):
+        """
+        Check the current AC power status.
+        
+        Returns:
+            bool: True if AC power is present, False if power is lost
+        """
+        # GPIO pin 6 is LOW (0) when AC power is OK
+        # GPIO pin 6 is HIGH (1) when AC power is lost
+        power_status = GPIO.input(POWER_LOSS_DETECT_PIN)
+        return power_status == 0  # Return True if power is OK (pin is LOW)
     
-    def find_carplay_processes(self):
-        """Find running react-carplay processes"""
-        carplay_processes = []
+    def trigger_safe_shutdown(self):
+        """
+        Trigger the X728 board to perform a safe shutdown using gpiod (modern method).
+        This replicates the official Geekworm xSoft.sh script functionality.
+        """
         try:
-            # Look for react-carplay AppImage processes
-            result = subprocess.run(['pgrep', '-f', 'react-carplay'], 
-                                  capture_output=True, text=True)
+            logging.info("Triggering X728 safe shutdown sequence using gpiod...")
+            
+            # Use the modern gpiod library approach (like official xSoft.sh)
+            # GPIO chip 0 is used for Pi 0/1/2/3/4, GPIO chip 4 for Pi 5
+            gpio_chip = "0"  # Default for most Pi models
+            
+            # First, set GPIO26 HIGH using gpioset command
+            shutdown_cmd = f"gpioset {gpio_chip} {SHUTDOWN_TRIGGER_PIN}=1"
+            result = subprocess.run(shutdown_cmd, shell=True, capture_output=True, text=True)
+            
             if result.returncode == 0:
-                pids = result.stdout.strip().split('\n')
-                carplay_processes.extend([int(pid) for pid in pids if pid])
-            
-            # Look for Carplay.AppImage processes (common naming)
-            result = subprocess.run(['pgrep', '-f', 'Carplay.AppImage'], 
-                                  capture_output=True, text=True)
-            if result.returncode == 0:
-                pids = result.stdout.strip().split('\n')
-                carplay_processes.extend([int(pid) for pid in pids if pid])
-            
-            # Look for any carplay-related node processes
-            result = subprocess.run(['pgrep', '-f', 'node.*carplay'], 
-                                  capture_output=True, text=True)
-            if result.returncode == 0:
-                pids = result.stdout.strip().split('\n')
-                carplay_processes.extend([int(pid) for pid in pids if pid])
+                logging.info(f"Successfully set GPIO{SHUTDOWN_TRIGGER_PIN} HIGH via gpiod")
+                print("🔌 X728 shutdown signal sent - UPS will power down after Pi shutdown")
+                
+                # Sleep for the standard delay (like xSoft.sh)
+                time.sleep(4)
+                
+                # The GPIO restoration happens automatically when the Pi shuts down
+                # No need to manually restore to LOW as the Pi shutdown handles this
+                
+            else:
+                # Fallback to RPi.GPIO if gpiod fails
+                logging.warning(f"gpiod command failed: {result.stderr}, falling back to RPi.GPIO")
+                self.trigger_safe_shutdown_fallback()
+                return
                 
         except Exception as e:
-            self.logger.error(f"Error finding carplay processes: {e}")
-        
-        return list(set(carplay_processes))  # Remove duplicates
+            logging.error(f"Failed to trigger X728 shutdown via gpiod: {e}")
+            # Fallback to RPi.GPIO method
+            self.trigger_safe_shutdown_fallback()
     
-    def graceful_carplay_shutdown(self):
-        """Gracefully shutdown react-carplay application"""
-        self.log_event("Initiating graceful carplay shutdown...")
-        
-        processes = self.find_carplay_processes()
-        
-        if not processes:
-            self.log_event("No react-carplay processes found")
-            return True
-        
-        self.log_event(f"Found {len(processes)} carplay processes: {processes}")
-        
-        # First, try graceful shutdown with SIGTERM
-        for pid in processes:
-            try:
-                self.logger.info(f"Sending SIGTERM to process {pid}")
-                os.kill(pid, signal.SIGTERM)
-            except ProcessLookupError:
-                self.logger.info(f"Process {pid} already terminated")
-            except Exception as e:
-                self.logger.error(f"Error terminating process {pid}: {e}")
-        
-        # Wait for processes to terminate gracefully
-        wait_time = 10  # seconds
-        self.logger.info(f"Waiting {wait_time} seconds for graceful shutdown...")
-        time.sleep(wait_time)
-        
-        # Check if processes are still running
-        remaining_processes = self.find_carplay_processes()
-        
-        if remaining_processes:
-            self.log_event(f"Force killing remaining processes: {remaining_processes}")
-            for pid in remaining_processes:
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                    self.logger.info(f"Force killed process {pid}")
-                except ProcessLookupError:
-                    pass
-                except Exception as e:
-                    self.logger.error(f"Error force killing process {pid}: {e}")
-        
-        self.log_event("Carplay shutdown complete")
-        return True
-    
-    def sync_filesystem(self):
-        """Synchronize filesystem before shutdown"""
-        self.log_event("Synchronizing filesystem...")
+    def trigger_safe_shutdown_fallback(self):
+        """Fallback shutdown method using RPi.GPIO."""
         try:
-            subprocess.run(['sync'], check=True)
-            time.sleep(2)  # Give some time for sync to complete
-            self.log_event("Filesystem sync complete")
+            logging.info("Using RPi.GPIO fallback method for X728 shutdown...")
+            
+            # Traditional RPi.GPIO method (older approach)
+            GPIO.output(SHUTDOWN_TRIGGER_PIN, GPIO.HIGH)
+            time.sleep(3)
+            GPIO.output(SHUTDOWN_TRIGGER_PIN, GPIO.LOW)
+            
+            logging.info("X728 shutdown signal sent via RPi.GPIO fallback")
+            print("🔌 X728 UPS shutdown signal sent (fallback method)")
+            
         except Exception as e:
-            self.logger.error(f"Error syncing filesystem: {e}")
+            logging.error(f"Failed to trigger X728 shutdown via RPi.GPIO: {e}")
     
-    def monitor_ups_signal(self):
-        """Monitor UPS halt signal and trigger shutdown when detected"""
-        self.log_event("Starting UPS signal monitoring...")
-        
-        while not self.shutdown_event.is_set():
-            try:
-                # Wait for UPS halt signal
-                GPIO.wait_for_edge(self.shutdown_pin, GPIO.RISING, timeout=1000)
-                
-                if self.shutdown_event.is_set():
-                    break
-                
-                # Debounce the signal
-                time.sleep(0.01)
-                pulse_time = 1
-                
-                while GPIO.input(self.shutdown_pin) == GPIO.HIGH:
-                    time.sleep(0.01)
-                    pulse_time += 1
-                    
-                    # Safety check to prevent infinite loop
-                    if pulse_time > 1000:  # 10 seconds max
-                        break
-                
-                # Check if this is a valid shutdown signal (2-3 time units as per UPS docs)
-                if 2 <= pulse_time <= 3:
-                    self.log_event(f"Valid UPS shutdown signal detected (pulse time: {pulse_time})")
-                    self.initiate_shutdown()
-                    break
-                else:
-                    self.logger.debug(f"Ignoring invalid pulse (time: {pulse_time})")
-                    
-            except Exception as e:
-                if not self.shutdown_event.is_set():
-                    self.logger.error(f"Error monitoring UPS signal: {e}")
-                    time.sleep(1)
-    
-    def initiate_shutdown(self):
-        """Initiate the complete shutdown sequence"""
-        self.log_event("=== INITIATING EMERGENCY SHUTDOWN SEQUENCE ===")
-        self.log_event("External power lost - UPS battery mode activated")
-        
+    def perform_system_shutdown(self):
+        """Perform a graceful system shutdown that also powers down the UPS."""
         try:
-            # Step 1: Graceful carplay shutdown
-            self.graceful_carplay_shutdown()
+            logging.info("Initiating complete system and UPS shutdown...")
             
-            # Step 2: Sync filesystem
-            self.sync_filesystem()
+            # First trigger the X728 UPS shutdown sequence  
+            self.trigger_safe_shutdown()
             
-            # Step 3: Final system shutdown
-            self.log_event("Initiating system shutdown...")
+            # Small delay to ensure the UPS received the signal
             time.sleep(1)
             
-            # Use systemctl for proper shutdown
-            subprocess.run(['sudo', 'systemctl', 'poweroff'], check=True)
+            # Now perform the Pi shutdown
+            # This is equivalent to the x728off command from Geekworm scripts
+            logging.info("Shutting down Raspberry Pi...")
+            subprocess.run(['sudo', 'shutdown', '-h', 'now'], check=True)
             
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Failed to shutdown system: {e}")
         except Exception as e:
-            self.logger.error(f"Error during shutdown sequence: {e}")
-            # Fallback to direct shutdown
+            logging.error(f"Unexpected error during shutdown: {e}")
+    
+    def power_loss_callback(self, channel):
+        """
+        Callback function triggered when power status changes.
+        
+        Args:
+            channel: GPIO channel that triggered the interrupt
+        """
+        # Small delay to debounce the signal
+        time.sleep(DEBOUNCE_TIME)
+        
+        current_power_status = self.check_power_status()
+        
+        if not current_power_status and not self.power_lost:
+            # Power just lost
+            self.handle_power_loss()
+            
+        elif current_power_status and self.power_lost:
+            # Power restored
+            self.handle_power_restored()
+    
+    def start_monitoring(self):
+        """Start monitoring AC power status."""
+        try:
+            print("🔋 X728 UPS Power Monitor Starting...")
+            print(f"📍 Monitoring GPIO pin {POWER_LOSS_DETECT_PIN} for power loss")
+            print(f"⚙️  Shutdown delay: {SHUTDOWN_DELAY} seconds")
+            print("✅ Ready to protect your Raspberry Pi!")
+            print("\nPress Ctrl+C to stop monitoring\n")
+            
+            # Check initial power status
+            if self.check_power_status():
+                print("🔌 AC Power: OK")
+                logging.info("Initial power status: AC Power OK")
+            else:
+                print("⚠️  AC Power: LOST")
+                logging.warning("Initial power status: AC Power LOST")
+            
+            # Try to set up interrupt for power status changes
             try:
-                subprocess.run(['sudo', 'shutdown', '-h', 'now'], check=True)
-            except Exception as fallback_error:
-                self.logger.error(f"Fallback shutdown failed: {fallback_error}")
-    
-    def signal_handler(self, signum, frame):
-        """Handle system signals for graceful exit"""
-        self.logger.info(f"Received signal {signum}, shutting down...")
-        self.shutdown_event.set()
-        self.cleanup()
-        sys.exit(0)
-    
-    def cleanup(self):
-        """Cleanup GPIO and resources"""
-        try:
-            GPIO.cleanup()
-            self.log_event("GPIO cleanup completed")
-        except Exception as e:
-            self.logger.error(f"Error during GPIO cleanup: {e}")
-    
-    def run(self):
-        """Main execution loop"""
-        try:
-            self.log_event("=== UPS CARPLAY MANAGER STARTED ===")
-            self.log_event("System powered on - monitoring for power events...")
+                # Clean up any existing edge detection first
+                GPIO.remove_event_detect(POWER_LOSS_DETECT_PIN)
+                time.sleep(0.1)  # Small delay to ensure cleanup
+                
+                GPIO.add_event_detect(
+                    POWER_LOSS_DETECT_PIN, 
+                    GPIO.BOTH,  # Trigger on both rising and falling edges
+                    callback=self.power_loss_callback,
+                    bouncetime=int(DEBOUNCE_TIME * 1000)  # Convert to milliseconds
+                )
+                print("🎯 GPIO interrupt monitoring activated")
+                logging.info("GPIO edge detection successfully configured")
+                
+            except Exception as gpio_error:
+                print(f"⚠️  GPIO interrupt failed: {gpio_error}")
+                print("🔄 Falling back to polling mode...")
+                logging.warning(f"GPIO edge detection failed: {gpio_error}, using polling mode")
+                return self.start_polling_mode()
             
-            # Start monitoring in a separate thread
-            monitor_thread = Thread(target=self.monitor_ups_signal, daemon=True)
-            monitor_thread.start()
-            
-            # Keep the main thread alive
-            while not self.shutdown_event.is_set():
+            # Keep the script running with interrupt-based monitoring
+            print("🔍 Using efficient interrupt-based monitoring")
+            while True:
                 time.sleep(1)
                 
         except KeyboardInterrupt:
-            self.log_event("Shutdown requested by user")
+            print("\n\n⏹️  Monitoring stopped by user")
+            logging.info("Power monitoring stopped by user")
+            
         except Exception as e:
-            self.logger.error(f"Unexpected error in main loop: {e}")
+            print(f"\n❌ Error: {e}")
+            logging.error(f"Monitoring error: {e}")
+            
         finally:
             self.cleanup()
+    
+    def start_polling_mode(self):
+        """Alternative monitoring mode that checks power status every second."""
+        try:
+            print("🔍 Using polling-based monitoring (checks every second)")
+            logging.info("Started polling-based power monitoring")
+            
+            last_power_status = self.check_power_status()
+            
+            while True:
+                current_power_status = self.check_power_status()
+                
+                # Check if power status changed
+                if current_power_status != last_power_status:
+                    if not current_power_status and not self.power_lost:
+                        # Power just lost
+                        self.handle_power_loss()
+                    elif current_power_status and self.power_lost:
+                        # Power restored
+                        self.handle_power_restored()
+                
+                last_power_status = current_power_status
+                time.sleep(1)  # Check every second
+                
+        except KeyboardInterrupt:
+            print("\n\n⏹️  Monitoring stopped by user")
+            logging.info("Power monitoring stopped by user")
+            
+        except Exception as e:
+            print(f"\n❌ Error: {e}")
+            logging.error(f"Polling monitoring error: {e}")
+    
+    def handle_power_loss(self):
+        """Handle power loss event."""
+        self.power_lost = True
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        print(f"\n{'='*50}")
+        print(f"⚠️  AC POWER LOSS DETECTED! ⚠️")
+        print(f"Time: {timestamp}")
+        print(f"Initiating safe shutdown in {SHUTDOWN_DELAY} seconds...")
+        print(f"This will shut down BOTH the Pi and UPS")
+        print(f"{'='*50}")
+        
+        logging.warning("AC Power Loss detected - initiating Pi and UPS shutdown sequence")
+        
+        # Wait for the specified delay before shutdown
+        for i in range(SHUTDOWN_DELAY, 0, -1):
+            print(f"Shutting down Pi + UPS in {i} second{'s' if i != 1 else ''}...")
+            time.sleep(1)
+        
+        print("🔄 Shutting down Pi and powering off UPS NOW!")
+        
+        # Perform complete shutdown (Pi + UPS)
+        self.perform_system_shutdown()
+    
+    def handle_power_restored(self):
+        """Handle power restored event."""
+        self.power_lost = False
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        print(f"\n{'='*50}")
+        print(f"✅ AC POWER RESTORED!")
+        print(f"Time: {timestamp}")
+        print(f"System operation normal")
+        print(f"{'='*50}")
+        
+        logging.info("AC Power restored - system operation normal")
+    
+    def cleanup(self):
+        """Clean up GPIO resources."""
+        try:
+            # Remove any event detection before cleanup
+            try:
+                GPIO.remove_event_detect(POWER_LOSS_DETECT_PIN)
+            except:
+                pass  # Ignore errors if no event detection was set
+                
+            GPIO.cleanup()
+            print("🧹 GPIO cleanup completed")
+            logging.info("GPIO cleanup completed")
+        except Exception as e:
+            logging.error(f"Error during cleanup: {e}")
 
 def main():
-    """Main entry point"""
-    # Check if running as root (required for GPIO and shutdown)
-    if os.geteuid() != 0:
-        print("This script must be run as root (use sudo)")
-        sys.exit(1)
-    
-    # Create and run the UPS manager
+    """Main function to start the power monitoring service."""
     try:
-        ups_manager = CarPlayUPSManager()
-        ups_manager.run()
+        # Create and start the power manager
+        power_manager = X728PowerManager()
+        power_manager.start_monitoring()
+        
     except Exception as e:
-        print(f"Failed to start UPS manager: {e}")
-        sys.exit(1)
+        print(f"❌ Failed to start power monitoring: {e}")
+        logging.error(f"Failed to start power monitoring: {e}")
+        return 1
+    
+    return 0
 
 if __name__ == "__main__":
-    main()
+    exit(main())
