@@ -1,41 +1,33 @@
-# X728 UPS Auto Shutdown
+# X728 UPS Auto Shutdown for Ri-Act Carplay Integration
 
 **Smart power management for Raspberry Pi with Geekworm X728 UPS boards**
 
 This Python script provides automatic shutdown protection for Raspberry Pi systems using the Geekworm X728 UPS & Power Management Board. When AC power is lost, the script safely shuts down both the Raspberry Pi **AND** the UPS itself after a configurable delay, preserving battery life and ensuring clean system restarts.
 
+This project was entirely possible by CLAUDE.AI. I MYSELF AM NOT A CODER/SOFTWARE PERSON NOR CLAIM TO BE ONE. All code and documentation was made with the help of claude and was made to function for my purpose. I am making this public so that others may take this code and change, modify, etc. to their own use. 
+
 ## ✨ Features
 
-- **Complete Power Management** - Shuts down both Pi and UPS (not just the Pi)
-- **Automatic Power Loss Detection** - Monitors GPIO pin 6 for AC power status  
+- **Complete Power Management** - Shuts down both Pi and UPS 
+- **Automatic Power Loss Detection** - Monitors AC power status  
 - **Configurable Shutdown Delay** - Default 5 seconds, easily customizable
 - **Auto Power-On** - System automatically restarts when AC power is restored
-- **Smart Fallback** - Falls back to polling mode if GPIO interrupts fail
-- **Modern GPIO Support** - Uses gpiod library (same as official Geekworm scripts)
+- **Smart Fallback** - Falls back to polling mode if GPIO interrupts fails
 - **Automatic Log Rotation** - Built-in log management keeps files under 100KB
-- **Systemd Integration** - Runs as a proper system service with auto-start
 - **Comprehensive Logging** - Detailed logs for troubleshooting and monitoring
 
 ## 🔧 Hardware Compatibility
 
 **Supported X728 Versions:**
-- X728 V2.5 (Recommended)
-- X728 V2.3
-- X728 V2.2  
-- X728 V2.1
-- X728 V2.0
+- X728 V2.5 
+Built for this version. May work on others but NOT tested
 
 **Supported Raspberry Pi Models:**
-- Raspberry Pi 5
 - Raspberry Pi 4 Model B
-- Raspberry Pi 3 Model B+/3B
-- Raspberry Pi 2 Model B
-- Raspberry Pi B+
+  May work on other models but NOT tested
 
 **Operating Systems Tested:**
 - Raspberry Pi OS (Bookworm)
-- Raspberry Pi OS (Bullseye)
-- Ubuntu 22.04+ on Pi
 
 ## 🚀 Quick Start
 
@@ -48,7 +40,7 @@ This Python script provides automatic shutdown protection for Raspberry Pi syste
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/x728-auto-shutdown.git
+   git clone https://github.com/brandespinosa/x728-auto-shutdown.git
    cd x728-auto-shutdown
    ```
 
@@ -161,25 +153,9 @@ sudo i2cdetect -y 1
 watch "gpioget 0 6"
 ```
 
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
-
-### Development Setup
-1. Fork the repository
-2. Create a feature branch
-3. Test thoroughly on actual hardware
-4. Submit a pull request with detailed description
-
 ## 📝 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- **Geekworm** for the excellent X728 UPS hardware and reference implementations
-- **Community contributors** who helped identify and solve systemd service issues
-- **pimlie** for the original GPIO control shell scripts that inspired the modern gpiod implementation
 
 ## 📞 Support
 
