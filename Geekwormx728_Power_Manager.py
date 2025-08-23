@@ -19,7 +19,7 @@ Created for: Geekworm X728 UPS & Power Management Board
 Compatible with: X728 V2.0, V2.1, V2.2, V2.3, V2.5
 Tested on: Raspberry Pi 4B with Raspberry Pi OS
 
-Author: Custom script based on Geekworm examples
+Author: Claude and Brandon
 Version: 2.0 - Now includes proper UPS shutdown!
 """
 
