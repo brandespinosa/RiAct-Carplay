@@ -161,12 +161,4 @@ watch "gpioget 0 6"
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 📞 Support
-
-- **GitHub Issues**: For bug reports and feature requests
-- **Hardware Support**: Contact Geekworm at support@geekworm.com for X728 hardware issues
-- **Community Forum**: [Geekworm Community](https://geekworm.com/community)
-
----
-
 **⚡ Keep your Raspberry Pi safe with smart power management!**
