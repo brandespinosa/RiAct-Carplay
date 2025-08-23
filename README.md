@@ -6,8 +6,10 @@ This Python script provides automatic shutdown protection for Raspberry Pi syste
 
 This project was entirely possible by CLAUDE.AI. I MYSELF AM NOT A CODER/SOFTWARE PERSON NOR CLAIM TO BE ONE. All code and documentation was made with the help of claude and was made to function for my purpose. I am making this public so that others may take this code and change, modify, etc. to their own use. This repository will NOT be maintained in any capacity. Good Luck all future hobbyist! Best regards, B. 
 
-Manual Code - If ran as a 1 time executable, will function correctly as intended, The power loss shuts the Pi down after 5 second delay with the UPS as soon after. Will not work as a service. 
+Testing Code - If ran as a 1 time executable, will function correctly as intended, The power loss shuts the Pi down after 5 second delay with the UPS as soon after. Will not work as a service. 
+
 Service Code - Will run as a service excecutable and allows the Pi to be powered on and shutoff via the UPS. 
+
 Final Build - Does the exact same thing as Service, with the addition that any logs generated are capped at the last 1000. This ensures no memoery build up. 
 
 ## ✨ Features
