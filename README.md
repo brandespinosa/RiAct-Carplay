@@ -10,7 +10,7 @@ Testing Code - If ran as a 1 time executable, will function correctly as intende
 
 Service Code - Will run as a service excecutable and allows the Pi to be powered on and shutoff via the UPS. 
 
-Final Build - Does the exact same thing as Service, with the addition that any logs generated are capped at the last 1000. This ensures no memoery build up. 
+Final Build - Does the exact same thing as Service, with the addition that any logs generated are capped at the last 1000. This ensures no memory build up. 
 
 ## ✨ Features
 
