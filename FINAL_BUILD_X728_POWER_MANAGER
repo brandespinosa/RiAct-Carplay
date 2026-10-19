@@ -224,7 +224,9 @@ class X728PowerManager:
             else:
                 print("⚠️  AC Power: LOST")
                 logging.warning("Initial power status: AC Power LOST")
-            
+                # No edge will come if power was already lost at boot
+                self.handle_power_loss()
+
             # Try to set up interrupt for power status changes
             try:
                 # Clean up any existing edge detection first
@@ -311,6 +313,10 @@ class X728PowerManager:
         for i in range(SHUTDOWN_DELAY, 0, -1):
             print(f"Shutting down system in {i} second{'s' if i != 1 else ''}...")
             time.sleep(1)
+            if self.check_power_status():
+                # Power came back during the countdown (e.g. engine crank) - cancel
+                self.handle_power_restored()
+                return
         
         print("🔄 Shutting down Pi - UPS shutdown handled by systemd!")
         

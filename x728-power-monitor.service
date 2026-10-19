@@ -1,0 +1,22 @@
+[Unit]
+Description=X728 UPS Power Monitor
+After=multi-user.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+# Change "pi" to your username (Bookworm has no default pi user)
+User=pi
+ExecStart=/usr/bin/python3 /home/pi/x728_power_monitor/x728_auto_shutdown.py
+# Power off the UPS only when AC is really lost (GPIO6 HIGH), not on reboot/restart
+ExecStop=/bin/sh -c '[ "$$(gpioget 0 6)" = 1 ] && gpioset 0 26=1 || true'
+ExecStopPost=/bin/sleep 4
+TimeoutStopSec=10
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
