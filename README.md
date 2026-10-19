@@ -6,11 +6,9 @@ This Python script provides automatic shutdown protection for Raspberry Pi syste
 
 This project was entirely possible by CLAUDE.AI. I MYSELF AM NOT A CODER/SOFTWARE PERSON NOR CLAIM TO BE ONE. All code and documentation was made with the help of claude and was made to function for my purpose. I am making this public so that others may take this code and change, modify, etc. to their own use. This repository will NOT be maintained in any capacity. Good Luck all future hobbyist! Best regards, B. 
 
-Testing Code - If ran as a 1 time executable, will function correctly as intended, The power loss shuts the Pi down after 5 second delay with the UPS as soon after. Will not work as a service. 
-
-Service Code - Will run as a service excecutable and allows the Pi to be powered on and shutoff via the UPS. 
-
-Final Build - Does the exact same thing as Service, with the addition that any logs generated are capped at the last 1000. This ensures no memory build up. 
+Files:
+- `x728_auto_shutdown.py` - the power monitor script (logs capped at the last 1000 lines).
+- `x728-power-monitor.service` - systemd service that runs the script and powers off the UPS after the Pi shuts down on AC loss.
 
 ## ✨ Features
 
@@ -46,8 +44,10 @@ Built for this version. May work on others but NOT tested
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/brandespinosa/x728-auto-shutdown.git
-   cd x728-auto-shutdown
+   git clone https://github.com/brandespinosa/RiAct-Carplay.git
+   mkdir -p ~/x728_power_monitor
+   cp RiAct-Carplay/x728_auto_shutdown.py RiAct-Carplay/x728-power-monitor.service ~/x728_power_monitor/
+   cd ~/x728_power_monitor
    ```
 
 2. **Install dependencies**
@@ -57,6 +57,12 @@ Built for this version. May work on others but NOT tested
    ```
 
 3. **Set up the service**
+
+   The service file uses the user `pi`. Raspberry Pi OS Bookworm has no default `pi` user, so first replace `pi` with your username:
+   ```bash
+   sed -i "s/\bpi\b/$USER/g" x728-power-monitor.service
+   ```
+   Then install it:
    ```bash
    chmod +x x728_auto_shutdown.py
    sudo cp x728-power-monitor.service /etc/systemd/system/

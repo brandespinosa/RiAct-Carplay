@@ -18,6 +18,7 @@ Features:
 Created for: Geekworm X728 UPS & Power Management Board
 Compatible with: X728 V2.0, V2.1, V2.2, V2.3, V2.5
 Tested on: Raspberry Pi 4B with Raspberry Pi OS
+
 """
 
 import RPi.GPIO as GPIO
@@ -40,6 +41,25 @@ log_file_path = os.path.expanduser('~/x728_power_monitor/x728_shutdown.log')
 log_dir = os.path.dirname(log_file_path)
 os.makedirs(log_dir, exist_ok=True)
 
+# Automatic log rotation - keep log file under 1000 lines
+def rotate_log_file(log_path, max_lines=1000):
+    """Rotate log file to prevent it from growing too large."""
+    try:
+        if os.path.exists(log_path):
+            with open(log_path, 'r') as f:
+                lines = f.readlines()
+            
+            if len(lines) > max_lines:
+                # Keep only the last max_lines
+                with open(log_path, 'w') as f:
+                    f.writelines(lines[-max_lines:])
+                print(f"🔄 Log file rotated - kept last {max_lines} lines")
+    except Exception as e:
+        print(f"Warning: Could not rotate log file: {e}")
+
+# Rotate log file before starting new logging session
+rotate_log_file(log_file_path)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -56,7 +76,11 @@ class X728PowerManager:
         """Initialize the power manager with GPIO setup."""
         self.setup_gpio()
         self.power_lost = False
+        
+        # Log rotation info
         logging.info("X728 Power Manager initialized successfully")
+        logging.info(f"Log file: {log_file_path}")
+        logging.info("Automatic log rotation: Keeps last 1000 lines")
     
     def setup_gpio(self):
         """Configure GPIO pins for power monitoring and shutdown control."""
@@ -89,73 +113,19 @@ class X728PowerManager:
         power_status = GPIO.input(POWER_LOSS_DETECT_PIN)
         return power_status == 0  # Return True if power is OK (pin is LOW)
     
-    def trigger_safe_shutdown(self):
-        """
-        Trigger the X728 board to perform a safe shutdown using gpiod (modern method).
-        This replicates the official Geekworm xSoft.sh script functionality.
-        """
-        try:
-            logging.info("Triggering X728 safe shutdown sequence using gpiod...")
-            
-            # Use the modern gpiod library approach (like official xSoft.sh)
-            # GPIO chip 0 is used for Pi 0/1/2/3/4, GPIO chip 4 for Pi 5
-            gpio_chip = "0"  # Default for most Pi models
-            
-            # First, set GPIO26 HIGH using gpioset command
-            shutdown_cmd = f"gpioset {gpio_chip} {SHUTDOWN_TRIGGER_PIN}=1"
-            result = subprocess.run(shutdown_cmd, shell=True, capture_output=True, text=True)
-            
-            if result.returncode == 0:
-                logging.info(f"Successfully set GPIO{SHUTDOWN_TRIGGER_PIN} HIGH via gpiod")
-                print("🔌 X728 shutdown signal sent - UPS will power down after Pi shutdown")
-                
-                # Sleep for the standard delay (like xSoft.sh)
-                time.sleep(4)
-                
-                # The GPIO restoration happens automatically when the Pi shuts down
-                # No need to manually restore to LOW as the Pi shutdown handles this
-                
-            else:
-                # Fallback to RPi.GPIO if gpiod fails
-                logging.warning(f"gpiod command failed: {result.stderr}, falling back to RPi.GPIO")
-                self.trigger_safe_shutdown_fallback()
-                return
-                
-        except Exception as e:
-            logging.error(f"Failed to trigger X728 shutdown via gpiod: {e}")
-            # Fallback to RPi.GPIO method
-            self.trigger_safe_shutdown_fallback()
-    
-    def trigger_safe_shutdown_fallback(self):
-        """Fallback shutdown method using RPi.GPIO."""
-        try:
-            logging.info("Using RPi.GPIO fallback method for X728 shutdown...")
-            
-            # Traditional RPi.GPIO method (older approach)
-            GPIO.output(SHUTDOWN_TRIGGER_PIN, GPIO.HIGH)
-            time.sleep(3)
-            GPIO.output(SHUTDOWN_TRIGGER_PIN, GPIO.LOW)
-            
-            logging.info("X728 shutdown signal sent via RPi.GPIO fallback")
-            print("🔌 X728 UPS shutdown signal sent (fallback method)")
-            
-        except Exception as e:
-            logging.error(f"Failed to trigger X728 shutdown via RPi.GPIO: {e}")
-    
     def perform_system_shutdown(self):
-        """Perform a graceful system shutdown that also powers down the UPS."""
+        """
+        Perform a graceful system shutdown. 
+        Note: UPS shutdown is handled by systemd ExecStop, not here.
+        """
         try:
-            logging.info("Initiating complete system and UPS shutdown...")
+            logging.info("Initiating system shutdown...")
+            logging.info("UPS shutdown will be handled by systemd service ExecStop")
             
-            # First trigger the X728 UPS shutdown sequence  
-            self.trigger_safe_shutdown()
+            # The systemd service will automatically call:
+            # ExecStop=/usr/bin/gpioset 0 26=1
+            # when the system shuts down, which properly signals the UPS
             
-            # Small delay to ensure the UPS received the signal
-            time.sleep(1)
-            
-            # Now perform the Pi shutdown
-            # This is equivalent to the x728off command from Geekworm scripts
-            logging.info("Shutting down Raspberry Pi...")
             subprocess.run(['sudo', 'shutdown', '-h', 'now'], check=True)
             
         except subprocess.CalledProcessError as e:
@@ -189,6 +159,8 @@ class X728PowerManager:
             print("🔋 X728 UPS Power Monitor Starting...")
             print(f"📍 Monitoring GPIO pin {POWER_LOSS_DETECT_PIN} for power loss")
             print(f"⚙️  Shutdown delay: {SHUTDOWN_DELAY} seconds")
+            print(f"📝 Log file: {log_file_path}")
+            print(f"🔄 Auto log rotation: Last 1000 lines kept")
             print("✅ Ready to protect your Raspberry Pi!")
             print("\nPress Ctrl+C to stop monitoring\n")
             
@@ -199,7 +171,9 @@ class X728PowerManager:
             else:
                 print("⚠️  AC Power: LOST")
                 logging.warning("Initial power status: AC Power LOST")
-            
+                # No edge will come if power was already lost at boot
+                self.handle_power_loss()
+
             # Try to set up interrupt for power status changes
             try:
                 # Clean up any existing edge detection first
@@ -277,19 +251,23 @@ class X728PowerManager:
         print(f"⚠️  AC POWER LOSS DETECTED! ⚠️")
         print(f"Time: {timestamp}")
         print(f"Initiating safe shutdown in {SHUTDOWN_DELAY} seconds...")
-        print(f"This will shut down BOTH the Pi and UPS")
+        print(f"Both Pi and UPS will shut down properly")
         print(f"{'='*50}")
         
-        logging.warning("AC Power Loss detected - initiating Pi and UPS shutdown sequence")
+        logging.warning("AC Power Loss detected - initiating Pi shutdown (UPS shutdown via systemd)")
         
         # Wait for the specified delay before shutdown
         for i in range(SHUTDOWN_DELAY, 0, -1):
-            print(f"Shutting down Pi + UPS in {i} second{'s' if i != 1 else ''}...")
+            print(f"Shutting down system in {i} second{'s' if i != 1 else ''}...")
             time.sleep(1)
+            if self.check_power_status():
+                # Power came back during the countdown (e.g. engine crank) - cancel
+                self.handle_power_restored()
+                return
         
-        print("🔄 Shutting down Pi and powering off UPS NOW!")
+        print("🔄 Shutting down Pi - UPS shutdown handled by systemd!")
         
-        # Perform complete shutdown (Pi + UPS)
+        # Perform system shutdown (UPS shutdown handled by service ExecStop)
         self.perform_system_shutdown()
     
     def handle_power_restored(self):
