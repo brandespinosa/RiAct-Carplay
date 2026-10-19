@@ -7,7 +7,7 @@ This Python script provides automatic shutdown protection for Raspberry Pi syste
 This project was entirely possible by CLAUDE.AI. I MYSELF AM NOT A CODER/SOFTWARE PERSON NOR CLAIM TO BE ONE. All code and documentation was made with the help of claude and was made to function for my purpose. I am making this public so that others may take this code and change, modify, etc. to their own use. This repository will NOT be maintained in any capacity. Good Luck all future hobbyist! Best regards, B. 
 
 Files:
-- `x728_auto_shutdown.py` - the power monitor script (logs capped at the last 1000 lines).
+- `x728_auto_shutdown.py` - the power monitor script (log file rotates at ~100KB).
 - `x728-power-monitor.service` - systemd service that runs the script and powers off the UPS after the Pi shuts down on AC loss.
 
 ## ✨ Features
@@ -17,7 +17,7 @@ Files:
 - **Configurable Shutdown Delay** - Default 5 seconds, easily customizable
 - **Auto Power-On** - System automatically restarts when AC power is restored
 - **Smart Fallback** - Falls back to polling mode if GPIO interrupts fails
-- **Automatic Log Rotation** - Built-in log management keeps files under 100KB
+- **Automatic Log Rotation** - Log file rotates at ~100KB (one backup kept)
 - **Comprehensive Logging** - Detailed logs for troubleshooting and monitoring
 
 ## 🔧 Hardware Compatibility
@@ -34,6 +34,8 @@ Built for this version. May work on others but NOT tested
 - Raspberry Pi OS (Bookworm)
 
 ## 🚀 Quick Start
+
+New to the Pi? Follow the step-by-step [Installation Guide](INSTALL_GUIDE.md) (also as a [PDF](X728%20Auto%20Shutdown%20Installation%20Guide.pdf)).
 
 ### Prerequisites
 - Raspberry Pi with X728 UPS board properly connected
@@ -117,9 +119,8 @@ tail -f ~/x728_power_monitor/x728_shutdown.log
 ```
 
 ### Log Management
-- **Automatic rotation** keeps log files under 1000 lines (~100KB)
+- **Automatic rotation** at ~100KB; the previous log is kept as `x728_shutdown.log.1`
 - **Manual clearing**: `> ~/x728_power_monitor/x728_shutdown.log`
-- **Archive logs**: Built-in backup procedures available
 
 ## 🔌 How It Works
 
