@@ -1,0 +1,25 @@
+[Unit]
+Description=CarPlay kiosk (black screen, no desktop)
+After=systemd-user-sessions.service
+Conflicts=getty@tty1.service
+After=getty@tty1.service
+
+[Service]
+# Change "pi" to your username (setup_black_boot.sh does this for you)
+User=pi
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty1
+UtmpMode=user
+ExecStart=/usr/bin/cage -s -- /home/pi/carplay/Carplay.AppImage --ozone-platform=wayland
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

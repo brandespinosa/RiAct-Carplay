@@ -85,6 +85,32 @@ python3 x728_auto_shutdown.py
 ```
 Unplug your power adapter to test power loss detection. The script will show a 5-second countdown and then safely shut down both the Pi and UPS.
 
+## 🖤 Black Screen Until CarPlay Opens
+
+By default the Pi shows the boot logo, the desktop and then white "Searching For Dongle / Phone" screens. `setup_black_boot.sh` keeps the screen black until CarPlay actually opens:
+
+- Hides the rainbow splash, boot logo and boot text.
+- Skips the desktop and runs the CarPlay app full screen in the `cage` kiosk (`carplay-kiosk.service`).
+- Installs a version of [react-carplay](https://github.com/rhysmorgan134/react-carplay) that stays black while it searches for the dongle and phone. **Tap the black screen** to show the menu (settings, quit) for 10 seconds.
+
+Requires the dongle udev rule from react-carplay's `setup-pi.sh` (already there if you installed react-carplay with it).
+
+```bash
+cd ~/RiAct-Carplay
+bash setup_black_boot.sh
+sudo reboot
+```
+
+**To get the desktop back:**
+```bash
+sudo systemctl disable carplay-kiosk.service
+sudo systemctl enable getty@tty1.service
+sudo raspi-config nonint do_boot_behaviour B4
+sudo cp /boot/firmware/cmdline.txt.bak /boot/firmware/cmdline.txt
+sudo cp /boot/firmware/config.txt.bak /boot/firmware/config.txt
+sudo reboot
+```
+
 ## ⚙️ Configuration
 
 ### Basic Settings
