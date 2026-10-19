@@ -25,6 +25,7 @@ import RPi.GPIO as GPIO
 import time
 import subprocess
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
 # Configuration Settings
@@ -41,30 +42,12 @@ log_file_path = os.path.expanduser('~/x728_power_monitor/x728_shutdown.log')
 log_dir = os.path.dirname(log_file_path)
 os.makedirs(log_dir, exist_ok=True)
 
-# Automatic log rotation - keep log file under 1000 lines
-def rotate_log_file(log_path, max_lines=1000):
-    """Rotate log file to prevent it from growing too large."""
-    try:
-        if os.path.exists(log_path):
-            with open(log_path, 'r') as f:
-                lines = f.readlines()
-            
-            if len(lines) > max_lines:
-                # Keep only the last max_lines
-                with open(log_path, 'w') as f:
-                    f.writelines(lines[-max_lines:])
-                print(f"🔄 Log file rotated - kept last {max_lines} lines")
-    except Exception as e:
-        print(f"Warning: Could not rotate log file: {e}")
-
-# Rotate log file before starting new logging session
-rotate_log_file(log_file_path)
-
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(log_file_path),
+        # Rotates at ~100KB, keeping one old file (x728_shutdown.log.1)
+        RotatingFileHandler(log_file_path, maxBytes=100_000, backupCount=1),
         logging.StreamHandler()
     ]
 )
@@ -77,10 +60,9 @@ class X728PowerManager:
         self.setup_gpio()
         self.power_lost = False
         
-        # Log rotation info
         logging.info("X728 Power Manager initialized successfully")
         logging.info(f"Log file: {log_file_path}")
-        logging.info("Automatic log rotation: Keeps last 1000 lines")
+        logging.info("Automatic log rotation: ~100KB, one backup kept")
     
     def setup_gpio(self):
         """Configure GPIO pins for power monitoring and shutdown control."""
@@ -160,7 +142,7 @@ class X728PowerManager:
             print(f"📍 Monitoring GPIO pin {POWER_LOSS_DETECT_PIN} for power loss")
             print(f"⚙️  Shutdown delay: {SHUTDOWN_DELAY} seconds")
             print(f"📝 Log file: {log_file_path}")
-            print(f"🔄 Auto log rotation: Last 1000 lines kept")
+            print("🔄 Auto log rotation: ~100KB, one backup kept")
             print("✅ Ready to protect your Raspberry Pi!")
             print("\nPress Ctrl+C to stop monitoring\n")
             
